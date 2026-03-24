@@ -58,41 +58,39 @@ import User from "../models/User.js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export const stripeWebhooks = async (req, res) => {
-console.log("🔥 WEBHOOK HIT");
-console.log("EVENT TYPE:", event.type);
-    const sig = req.headers["stripe-signature"];
+    console.log("🔥 WEBHOOK HIT");
 
+    const sig = req.headers["stripe-signature"];
     let event;
 
+    // ✅ Verify webhook signature
     try {
         event = stripe.webhooks.constructEvent(
             req.body,
             sig,
             process.env.STRIPE_WEBHOOK_SECRET
         );
+
+        console.log("👉 EVENT TYPE:", event.type);
+
     } catch (err) {
         console.log("❌ Signature Error:", err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     try {
-        console.log("👉 EVENT TYPE:", event.type);
-
+        // ✅ Correct event for checkout flow
         if (event.type === "checkout.session.completed") {
 
             const session = event.data.object;
 
-            console.log("👉 FULL SESSION:", session);
             console.log("👉 METADATA:", session.metadata);
 
             const transactionId = session.metadata?.transactionId;
             const appId = session.metadata?.appId;
 
-            console.log("👉 Transaction ID:", transactionId);
-            console.log("👉 App ID:", appId);
-
             if (!transactionId) {
-                console.log("❌ No transactionId found in metadata");
+                console.log("❌ No transactionId found");
                 return res.json({ received: true });
             }
 
@@ -101,15 +99,11 @@ console.log("EVENT TYPE:", event.type);
                 return res.json({ received: true });
             }
 
-            // 🔍 Check DB connection
-            console.log("👉 DB URL:", process.env.MONGO_URI);
-
+            // ✅ Find transaction
             const transaction = await Transaction.findById(transactionId);
 
-            console.log("👉 Transaction from DB:", transaction);
-
             if (!transaction) {
-                console.log("❌ Transaction NOT FOUND in DB");
+                console.log("❌ Transaction NOT FOUND");
                 return res.json({ received: true });
             }
 
@@ -119,19 +113,16 @@ console.log("EVENT TYPE:", event.type);
             }
 
             // ✅ Update user credits
-            const userUpdate = await User.updateOne(
+            await User.updateOne(
                 { _id: transaction.userId },
                 { $inc: { credits: transaction.credits } }
             );
 
-            console.log("👉 User update result:", userUpdate);
-
-            // ✅ Update transaction
+            // ✅ Mark as paid
             transaction.isPaid = true;
             await transaction.save();
 
             console.log("✅ Payment SUCCESS → isPaid updated");
-
         } else {
             console.log("⚠️ Unhandled event:", event.type);
         }
